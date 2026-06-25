@@ -1,6 +1,10 @@
+@echo off
+powershell -ExecutionPolicy Bypass -File "%~dp0extract_files.ps1"
+
 # Extract attachments from .msg files via Outlook COM
 # Creates a subfolder per .msg named after the version (e.g. v5.8.0)
 # Then compares files across version folders using fc and writes report
+# Note: .avsc files are excluded from comparison
 
 $scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $msgFiles   = Get-ChildItem -Path $scriptDir -Filter "*.msg"
@@ -117,12 +121,14 @@ if ($versionFolders.Count -lt 2) {
     Write-Host "Not enough version folders to compare (need at least 2)." -ForegroundColor Yellow
 } else {
     # Build map: baseName -> { version -> fullPath }
+    # Skip .avsc files
     $allFiles = @{}
 
     foreach ($folder in $versionFolders) {
-        $files = Get-ChildItem -Path $folder.FullName -File
+        $files = Get-ChildItem -Path $folder.FullName -File |
+            Where-Object { $_.Extension -ne ".avsc" }
+
         foreach ($f in $files) {
-            $ext       = $f.Extension
             $nameNoExt = $f.BaseName
             $baseName  = $nameNoExt -replace '_v\d+\.\d+\.\d+$', ''
 
@@ -162,7 +168,6 @@ if ($versionFolders.Count -lt 2) {
                 $report.Add("    $verB : $pathB")
                 $report.Add("")
 
-                # Run fc via cmd /c to avoid PowerShell parsing issues
                 $fcOutput = cmd /c "fc /L `"$pathA`" `"$pathB`"" 2>&1
 
                 foreach ($line in $fcOutput) {
