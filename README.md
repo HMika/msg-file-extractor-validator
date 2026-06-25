@@ -98,9 +98,12 @@ Write-Host "============================================`n" -ForegroundColor Cya
 # -------------------------------------------------------
 Write-Host "Starting file comparison..." -ForegroundColor Cyan
 
-$versionFolders = Get-ChildItem -Path $scriptDir -Directory | Where-Object { $_.Name -match '^v\d+\.\d+\.\d+$' } | Sort-Object Name
-$reportPath     = Join-Path $scriptDir "comparison_report.txt"
-$report         = [System.Collections.Generic.List[string]]::new()
+$versionFolders = Get-ChildItem -Path $scriptDir -Directory |
+    Where-Object { $_.Name -match '^v\d+\.\d+\.\d+$' } |
+    Sort-Object Name
+
+$reportPath = Join-Path $scriptDir "comparison_report.txt"
+$report     = [System.Collections.Generic.List[string]]::new()
 
 $report.Add("FILE COMPARISON REPORT")
 $report.Add("Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
@@ -113,18 +116,15 @@ if ($versionFolders.Count -lt 2) {
     $report | Set-Content -Path $reportPath -Encoding UTF8
     Write-Host "Not enough version folders to compare (need at least 2)." -ForegroundColor Yellow
 } else {
-    # Get all unique base names (strip version suffix) across all folders
+    # Build map: baseName -> { version -> fullPath }
     $allFiles = @{}
 
     foreach ($folder in $versionFolders) {
         $files = Get-ChildItem -Path $folder.FullName -File
         foreach ($f in $files) {
-            # Strip version suffix from filename to get base name
-            # e.g. Risk_Factor_Feed_v5.8.0.proto -> Risk_Factor_Feed + .proto
-            $ext      = $f.Extension
+            $ext       = $f.Extension
             $nameNoExt = $f.BaseName
-            # Remove trailing _vX.Y.Z
-            $baseName = $nameNoExt -replace '_v\d+\.\d+\.\d+$', ''
+            $baseName  = $nameNoExt -replace '_v\d+\.\d+\.\d+$', ''
 
             if (-not $allFiles.ContainsKey($baseName)) {
                 $allFiles[$baseName] = @{}
@@ -133,8 +133,8 @@ if ($versionFolders.Count -lt 2) {
         }
     }
 
-    # Compare each base file across all version pairs
     $folderList = $versionFolders.Name
+
     for ($i = 0; $i -lt $folderList.Count - 1; $i++) {
         for ($j = $i + 1; $j -lt $folderList.Count; $j++) {
             $verA = $folderList[$i]
@@ -160,11 +160,14 @@ if ($versionFolders.Count -lt 2) {
                 $report.Add("  FILE: $baseName")
                 $report.Add("    $verA : $pathA")
                 $report.Add("    $verB : $pathB")
+                $report.Add("")
 
-                # Run fc command
-                $fcOutput = & fc /L "$pathA" "$pathB" 2>&1
-                $fcLines  = $fcOutput | ForEach-Object { "    $_" }
-                $report.AddRange([string[]]$fcLines)
+                # Run fc via cmd /c to avoid PowerShell parsing issues
+                $fcOutput = cmd /c "fc /L `"$pathA`" `"$pathB`"" 2>&1
+
+                foreach ($line in $fcOutput) {
+                    $report.Add("    $line")
+                }
                 $report.Add("")
             }
 
