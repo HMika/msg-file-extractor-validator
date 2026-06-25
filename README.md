@@ -1,5 +1,6 @@
 # Extract attachments from .msg files via Outlook COM
 # Creates a subfolder per .msg named after the version (e.g. v5.8.0)
+# Then compares files across version folders using fc and writes report
 
 $scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $msgFiles   = Get-ChildItem -Path $scriptDir -Filter "*.msg"
@@ -28,7 +29,6 @@ foreach ($file in $msgFiles) {
     try {
         $msg = $outlook.CreateItemFromTemplate($file.FullName)
 
-        # Find version vX.Y.Z in subject or filename
         $version = $null
 
         if ($msg.Subject -match 'v(\d+\.\d+\.\d+)') {
@@ -44,7 +44,6 @@ foreach ($file in $msgFiles) {
             Write-Host "  [!] No version found - folder will be named 'unknown_version'" -ForegroundColor Yellow
         }
 
-        # Create subfolder named after version (NOT inside attachments/)
         $outputDir = Join-Path $scriptDir $version
         if (-not (Test-Path $outputDir)) {
             New-Item -ItemType Directory -Path $outputDir | Out-Null
@@ -92,7 +91,89 @@ foreach ($file in $msgFiles) {
 
 Write-Host "`n============================================" -ForegroundColor Cyan
 Write-Host "Done. Extracted: $totalExtracted attachment(s)" -ForegroundColor Cyan
-Write-Host "Folders created in: $scriptDir" -ForegroundColor Cyan
 Write-Host "============================================`n" -ForegroundColor Cyan
+
+# -------------------------------------------------------
+# COMPARE FILES ACROSS VERSION FOLDERS
+# -------------------------------------------------------
+Write-Host "Starting file comparison..." -ForegroundColor Cyan
+
+$versionFolders = Get-ChildItem -Path $scriptDir -Directory | Where-Object { $_.Name -match '^v\d+\.\d+\.\d+$' } | Sort-Object Name
+$reportPath     = Join-Path $scriptDir "comparison_report.txt"
+$report         = [System.Collections.Generic.List[string]]::new()
+
+$report.Add("FILE COMPARISON REPORT")
+$report.Add("Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+$report.Add("Folders compared: $($versionFolders.Name -join ', ')")
+$report.Add("=" * 60)
+$report.Add("")
+
+if ($versionFolders.Count -lt 2) {
+    $report.Add("ERROR: Need at least 2 version folders to compare.")
+    $report | Set-Content -Path $reportPath -Encoding UTF8
+    Write-Host "Not enough version folders to compare (need at least 2)." -ForegroundColor Yellow
+} else {
+    # Get all unique base names (strip version suffix) across all folders
+    $allFiles = @{}
+
+    foreach ($folder in $versionFolders) {
+        $files = Get-ChildItem -Path $folder.FullName -File
+        foreach ($f in $files) {
+            # Strip version suffix from filename to get base name
+            # e.g. Risk_Factor_Feed_v5.8.0.proto -> Risk_Factor_Feed + .proto
+            $ext      = $f.Extension
+            $nameNoExt = $f.BaseName
+            # Remove trailing _vX.Y.Z
+            $baseName = $nameNoExt -replace '_v\d+\.\d+\.\d+$', ''
+
+            if (-not $allFiles.ContainsKey($baseName)) {
+                $allFiles[$baseName] = @{}
+            }
+            $allFiles[$baseName][$folder.Name] = $f.FullName
+        }
+    }
+
+    # Compare each base file across all version pairs
+    $folderList = $versionFolders.Name
+    for ($i = 0; $i -lt $folderList.Count - 1; $i++) {
+        for ($j = $i + 1; $j -lt $folderList.Count; $j++) {
+            $verA = $folderList[$i]
+            $verB = $folderList[$j]
+
+            $report.Add("COMPARING: $verA  vs  $verB")
+            $report.Add("-" * 60)
+
+            foreach ($baseName in ($allFiles.Keys | Sort-Object)) {
+                $pathA = $allFiles[$baseName][$verA]
+                $pathB = $allFiles[$baseName][$verB]
+
+                if (-not $pathA) {
+                    $report.Add("  [MISSING in $verA]  $baseName")
+                    continue
+                }
+                if (-not $pathB) {
+                    $report.Add("  [MISSING in $verB]  $baseName")
+                    continue
+                }
+
+                $report.Add("")
+                $report.Add("  FILE: $baseName")
+                $report.Add("    $verA : $pathA")
+                $report.Add("    $verB : $pathB")
+
+                # Run fc command
+                $fcOutput = & fc /L "$pathA" "$pathB" 2>&1
+                $fcLines  = $fcOutput | ForEach-Object { "    $_" }
+                $report.AddRange([string[]]$fcLines)
+                $report.Add("")
+            }
+
+            $report.Add("")
+        }
+    }
+
+    $report | Set-Content -Path $reportPath -Encoding UTF8
+    Write-Host "Comparison report saved to: $reportPath" -ForegroundColor Green
+}
 
 pause
