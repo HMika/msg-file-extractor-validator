@@ -1,9 +1,9 @@
 # Extract attachments from .msg files via Outlook COM
-# Place this script in the folder with .msg files and run it
+# Appends version (e.g. v5.8.0) to each extracted attachment filename
 
-$scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
-$outputDir   = Join-Path $scriptDir "attachments"
-$msgFiles    = Get-ChildItem -Path $scriptDir -Filter "*.msg"
+$scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
+$outputDir  = Join-Path $scriptDir "attachments"
+$msgFiles   = Get-ChildItem -Path $scriptDir -Filter "*.msg"
 
 if (-not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir | Out-Null
@@ -21,7 +21,7 @@ Write-Host "Output folder: $outputDir`n" -ForegroundColor Cyan
 try {
     $outlook = New-Object -ComObject Outlook.Application
 } catch {
-    Write-Host "ERROR: Could not start Outlook. Make sure Outlook is installed." -ForegroundColor Red
+    Write-Host "ERROR: Could not start Outlook." -ForegroundColor Red
     pause
     exit
 }
@@ -34,6 +34,23 @@ foreach ($file in $msgFiles) {
     try {
         $msg = $outlook.CreateItemFromTemplate($file.FullName)
 
+        # Try to find version pattern vX.Y.Z in subject or filename
+        $version = $null
+
+        # Check email subject first
+        if ($msg.Subject -match 'v(\d+\.\d+\.\d+)') {
+            $version = "v$($Matches[1])"
+            Write-Host "  Version found in subject: $version" -ForegroundColor DarkCyan
+        }
+        # Fallback: check .msg filename
+        elseif ($file.Name -match 'v(\d+\.\d+\.\d+)') {
+            $version = "v$($Matches[1])"
+            Write-Host "  Version found in filename: $version" -ForegroundColor DarkCyan
+        }
+        else {
+            Write-Host "  [!] No version found - files will be saved without version suffix" -ForegroundColor Yellow
+        }
+
         if ($msg.Attachments.Count -eq 0) {
             Write-Host "  [!] No attachments`n" -ForegroundColor Yellow
             $msg.Close(1)
@@ -43,14 +60,23 @@ foreach ($file in $msgFiles) {
         Write-Host "  Attachments: $($msg.Attachments.Count)" -ForegroundColor Gray
 
         foreach ($att in $msg.Attachments) {
-            $fileName = $att.FileName
-            $destPath = Join-Path $outputDir $fileName
+            $origName = $att.FileName
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($origName)
+            $ext      = [System.IO.Path]::GetExtension($origName)
 
+            # Build new filename with version suffix
+            if ($version) {
+                $newName = "$($baseName)_$($version)$ext"
+            } else {
+                $newName = $origName
+            }
+
+            $destPath = Join-Path $outputDir $newName
+
+            # Handle duplicates
             $counter = 1
-            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
-            $ext      = [System.IO.Path]::GetExtension($fileName)
             while (Test-Path $destPath) {
-                $destPath = Join-Path $outputDir "$($baseName)_$counter$ext"
+                $destPath = Join-Path $outputDir "$($baseName)_$($version)_$counter$ext"
                 $counter++
             }
 
