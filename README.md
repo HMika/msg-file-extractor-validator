@@ -1,6 +1,5 @@
 # Extract attachments from .msg files via Outlook COM
 # Creates a subfolder per .msg named after the version (e.g. v5.8.0)
-# Renames each attachment with the version suffix
 
 $scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $msgFiles   = Get-ChildItem -Path $scriptDir -Filter "*.msg"
@@ -45,12 +44,14 @@ foreach ($file in $msgFiles) {
             Write-Host "  [!] No version found - folder will be named 'unknown_version'" -ForegroundColor Yellow
         }
 
-        # Create subfolder named after version
+        # Create subfolder named after version (NOT inside attachments/)
         $outputDir = Join-Path $scriptDir $version
         if (-not (Test-Path $outputDir)) {
             New-Item -ItemType Directory -Path $outputDir | Out-Null
+            Write-Host "  Created folder: $outputDir" -ForegroundColor Gray
+        } else {
+            Write-Host "  Using existing folder: $outputDir" -ForegroundColor Gray
         }
-        Write-Host "  Output folder: $outputDir" -ForegroundColor Gray
 
         if ($msg.Attachments.Count -eq 0) {
             Write-Host "  [!] No attachments" -ForegroundColor Yellow
@@ -68,7 +69,6 @@ foreach ($file in $msgFiles) {
             $newName  = "$($baseName)_$($version)$ext"
             $destPath = Join-Path $outputDir $newName
 
-            # Handle duplicates
             $counter = 1
             while (Test-Path $destPath) {
                 $destPath = Join-Path $outputDir "$($baseName)_$($version)_$counter$ext"
