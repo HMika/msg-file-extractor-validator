@@ -1,38 +1,27 @@
-# msg-file-extractor-validator
-# ============================================================
-#  Extract-MsgAttachments.ps1
-#  Извлекает вложения из .msg файлов через Outlook COM
-#
-#  Использование:
-#    1. Положи скрипт в папку с .msg файлами
-#    2. Правой кнопкой -> "Run with PowerShell"
-#    3. Вложения появятся в папке "attachments" рядом
-# ============================================================
+# Extract attachments from .msg files via Outlook COM
+# Place this script in the folder with .msg files and run it
 
-# --- Настройки ---
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $outputDir   = Join-Path $scriptDir "attachments"
 $msgFiles    = Get-ChildItem -Path $scriptDir -Filter "*.msg"
 
-# --- Создать папку вывода ---
 if (-not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir | Out-Null
 }
 
 if ($msgFiles.Count -eq 0) {
-    Write-Host "Нет .msg файлов в папке: $scriptDir" -ForegroundColor Yellow
+    Write-Host "No .msg files found in: $scriptDir" -ForegroundColor Yellow
     pause
     exit
 }
 
-Write-Host "Найдено .msg файлов: $($msgFiles.Count)" -ForegroundColor Cyan
-Write-Host "Папка вывода: $outputDir`n" -ForegroundColor Cyan
+Write-Host "Found .msg files: $($msgFiles.Count)" -ForegroundColor Cyan
+Write-Host "Output folder: $outputDir`n" -ForegroundColor Cyan
 
-# --- Запустить Outlook ---
 try {
     $outlook = New-Object -ComObject Outlook.Application
 } catch {
-    Write-Host "Ошибка: не удалось запустить Outlook. Убедитесь что Outlook установлен." -ForegroundColor Red
+    Write-Host "ERROR: Could not start Outlook. Make sure Outlook is installed." -ForegroundColor Red
     pause
     exit
 }
@@ -40,24 +29,23 @@ try {
 $totalExtracted = 0
 
 foreach ($file in $msgFiles) {
-    Write-Host "Обрабатываю: $($file.Name)" -ForegroundColor White
+    Write-Host "Processing: $($file.Name)" -ForegroundColor White
 
     try {
         $msg = $outlook.CreateItemFromTemplate($file.FullName)
 
         if ($msg.Attachments.Count -eq 0) {
-            Write-Host "  [!] Вложений нет`n" -ForegroundColor Yellow
-            $msg.Close(1)  # 1 = olDiscard
+            Write-Host "  [!] No attachments`n" -ForegroundColor Yellow
+            $msg.Close(1)
             continue
         }
 
-        Write-Host "  Вложений: $($msg.Attachments.Count)" -ForegroundColor Gray
+        Write-Host "  Attachments: $($msg.Attachments.Count)" -ForegroundColor Gray
 
         foreach ($att in $msg.Attachments) {
             $fileName = $att.FileName
             $destPath = Join-Path $outputDir $fileName
 
-            # Если файл с таким именем уже есть — добавить счётчик
             $counter = 1
             $baseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
             $ext      = [System.IO.Path]::GetExtension($fileName)
@@ -75,18 +63,17 @@ foreach ($file in $msgFiles) {
         $msg.Close(1)
 
     } catch {
-        Write-Host "  ОШИБКА: $_" -ForegroundColor Red
+        Write-Host "  ERROR: $_" -ForegroundColor Red
     }
 
     Write-Host ""
 }
 
-# --- Освободить COM ---
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($outlook) | Out-Null
 
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "Готово. Извлечено вложений: $totalExtracted" -ForegroundColor Cyan
-Write-Host "Сохранено в: $outputDir" -ForegroundColor Cyan
+Write-Host "Done. Extracted: $totalExtracted attachment(s)" -ForegroundColor Cyan
+Write-Host "Saved to: $outputDir" -ForegroundColor Cyan
 Write-Host "============================================`n" -ForegroundColor Cyan
 
 pause
