@@ -1,13 +1,9 @@
 # Extract attachments from .msg files via Outlook COM
-# Appends version (e.g. v5.8.0) to each extracted attachment filename
+# Creates a subfolder per .msg named after the version (e.g. v5.8.0)
+# Renames each attachment with the version suffix
 
 $scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$outputDir  = Join-Path $scriptDir "attachments"
 $msgFiles   = Get-ChildItem -Path $scriptDir -Filter "*.msg"
-
-if (-not (Test-Path $outputDir)) {
-    New-Item -ItemType Directory -Path $outputDir | Out-Null
-}
 
 if ($msgFiles.Count -eq 0) {
     Write-Host "No .msg files found in: $scriptDir" -ForegroundColor Yellow
@@ -16,7 +12,6 @@ if ($msgFiles.Count -eq 0) {
 }
 
 Write-Host "Found .msg files: $($msgFiles.Count)" -ForegroundColor Cyan
-Write-Host "Output folder: $outputDir`n" -ForegroundColor Cyan
 
 try {
     $outlook = New-Object -ComObject Outlook.Application
@@ -29,30 +24,36 @@ try {
 $totalExtracted = 0
 
 foreach ($file in $msgFiles) {
-    Write-Host "Processing: $($file.Name)" -ForegroundColor White
+    Write-Host "`nProcessing: $($file.Name)" -ForegroundColor White
 
     try {
         $msg = $outlook.CreateItemFromTemplate($file.FullName)
 
-        # Try to find version pattern vX.Y.Z in subject or filename
+        # Find version vX.Y.Z in subject or filename
         $version = $null
 
-        # Check email subject first
         if ($msg.Subject -match 'v(\d+\.\d+\.\d+)') {
             $version = "v$($Matches[1])"
             Write-Host "  Version found in subject: $version" -ForegroundColor DarkCyan
         }
-        # Fallback: check .msg filename
         elseif ($file.Name -match 'v(\d+\.\d+\.\d+)') {
             $version = "v$($Matches[1])"
             Write-Host "  Version found in filename: $version" -ForegroundColor DarkCyan
         }
         else {
-            Write-Host "  [!] No version found - files will be saved without version suffix" -ForegroundColor Yellow
+            $version = "unknown_version"
+            Write-Host "  [!] No version found - folder will be named 'unknown_version'" -ForegroundColor Yellow
         }
 
+        # Create subfolder named after version
+        $outputDir = Join-Path $scriptDir $version
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir | Out-Null
+        }
+        Write-Host "  Output folder: $outputDir" -ForegroundColor Gray
+
         if ($msg.Attachments.Count -eq 0) {
-            Write-Host "  [!] No attachments`n" -ForegroundColor Yellow
+            Write-Host "  [!] No attachments" -ForegroundColor Yellow
             $msg.Close(1)
             continue
         }
@@ -64,13 +65,7 @@ foreach ($file in $msgFiles) {
             $baseName = [System.IO.Path]::GetFileNameWithoutExtension($origName)
             $ext      = [System.IO.Path]::GetExtension($origName)
 
-            # Build new filename with version suffix
-            if ($version) {
-                $newName = "$($baseName)_$($version)$ext"
-            } else {
-                $newName = $origName
-            }
-
+            $newName  = "$($baseName)_$($version)$ext"
             $destPath = Join-Path $outputDir $newName
 
             # Handle duplicates
@@ -91,15 +86,13 @@ foreach ($file in $msgFiles) {
     } catch {
         Write-Host "  ERROR: $_" -ForegroundColor Red
     }
-
-    Write-Host ""
 }
 
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($outlook) | Out-Null
 
-Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "`n============================================" -ForegroundColor Cyan
 Write-Host "Done. Extracted: $totalExtracted attachment(s)" -ForegroundColor Cyan
-Write-Host "Saved to: $outputDir" -ForegroundColor Cyan
+Write-Host "Folders created in: $scriptDir" -ForegroundColor Cyan
 Write-Host "============================================`n" -ForegroundColor Cyan
 
 pause
